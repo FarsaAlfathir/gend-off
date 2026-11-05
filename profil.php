@@ -8,7 +8,7 @@ if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit; }
 
 $username = htmlspecialchars($_SESSION['username'] ?? 'Faaiz');
 $inisial  = htmlspecialchars(mb_strtoupper(mb_substr($_SESSION['username'] ?? 'F', 0, 1)));
-$email    = htmlspecialchars(strtolower($_SESSION['username'] ?? 'faaiz') . '@gend-off.com');
+$email    = htmlspecialchars($_SESSION['email'] ?? '');
 $tahun    = date('Y');
 ?>
 <!DOCTYPE html>

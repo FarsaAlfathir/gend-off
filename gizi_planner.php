@@ -3,13 +3,91 @@
 // Letakkan di: htdocs/gend-off/gizi_planner.php | aset di: assets/
 session_start();
 
-// Simulasi login sementara (Hapus/sesuaikan baris ini jika sudah terhubung database)
-if (!isset($_SESSION['user_id'])) {
-    $_SESSION['user_id'] = 1;
-    $_SESSION['username'] = 'Pengguna';
+// Halaman ini hanya untuk pengguna yang sudah login (simulasi login sementara sudah dihapus)
+if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit; }
+
+require_once __DIR__ . '/supabase.php';
+
+$plannerFoods = [];
+$plannerFoodsError = '';
+$plannerCatalogLoaded = false;
+$token = sb_token();
+if (!$token) {
+  $plannerFoodsError = 'Sesi database tidak aktif. Silakan keluar lalu masuk kembali.';
+} else {
+  $catalog = sb_rest('GET', 'katalog_makanan', $token, [
+    'select' => 'id_makanan,nama_tampil,emoji,label_porsi,gram_porsi,bahan_mentah!inner(nama_bahan,kategori,kalori_per_gram,protein_per_gram,karbo_per_gram,lemak_per_gram,serat_per_gram),metode_pengolahan(id_metode,urutan,nama_metode,bahan_tambahan,tambah_kkal,tambah_lemak,status,catatan)',
+    'aktif' => 'eq.true',
+    'order' => 'id_makanan.asc',
+    'metode_pengolahan.order' => 'urutan.asc',
+    'limit' => 500,
+  ]);
+
+  if (!sb_ok($catalog) || !is_array($catalog['data'])) {
+    sb_log('gizi_katalog', $catalog);
+    $plannerFoodsError = 'Katalog makanan gagal dimuat dari database. Muat ulang halaman atau coba lagi nanti.';
+  } else {
+    $plannerCatalogLoaded = true;
+    $emojiByCategory = [
+      'Protein hewani' => '🍗', 'Karbohidrat' => '🌾', 'Sayuran' => '🥬',
+      'Buah' => '🍎', 'Kacang & kedelai' => '🫘', 'Susu & olahan' => '🥛',
+      'Bumbu & rempah' => '🌿', 'Gula & pemanis' => '🍯', 'Lemak & minyak' => '🫒',
+    ];
+
+    foreach ($catalog['data'] as $row) {
+      $bahan = $row['bahan_mentah'] ?? null;
+      if (is_array($bahan) && isset($bahan[0])) $bahan = $bahan[0];
+      if (!is_array($bahan) || empty($row['id_makanan']) || empty($row['gram_porsi'])) continue;
+
+      $grams = (float)$row['gram_porsi'];
+      $perPorsi = static function ($value, float $multiplier, int $precision = 1): ?float {
+        return $value === null ? null : round((float)$value * $multiplier, $precision);
+      };
+      $methods = [];
+      foreach (($row['metode_pengolahan'] ?? []) as $method) {
+        $status = (string)($method['status'] ?? '');
+        if (!in_array($status, ['ok', 'batas', 'no'], true)) continue;
+        $methods[] = [
+          'name' => (string)$method['nama_metode'],
+          'addition' => (string)$method['bahan_tambahan'],
+          'kcal' => (int)$method['tambah_kkal'],
+          'fat' => (float)$method['tambah_lemak'],
+          'status' => $status,
+          'note' => (string)($method['catatan'] ?? ''),
+        ];
+      }
+
+      $category = (string)$bahan['kategori'];
+      $plannerFoods[] = [
+        'id' => (string)$row['id_makanan'],
+        'name' => (string)($row['nama_tampil'] ?: $bahan['nama_bahan']),
+        'emoji' => (string)($row['emoji'] ?: ($emojiByCategory[$category] ?? '🍽️')),
+        'portion' => (string)$row['label_porsi'],
+        'grams' => $grams,
+        'kcal' => $perPorsi($bahan['kalori_per_gram'], $grams, 0),
+        'protein' => $perPorsi($bahan['protein_per_gram'], $grams),
+        'carbohydrate' => $perPorsi($bahan['karbo_per_gram'], $grams),
+        'fat' => $perPorsi($bahan['lemak_per_gram'], $grams),
+        'fiber' => $perPorsi($bahan['serat_per_gram'], $grams),
+        'category' => $category,
+        'methods' => $methods,
+      ];
+    }
+  }
 }
-// Aktifkan baris di bawah ini untuk proteksi halaman yang sebenarnya:
-// if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit; }
+
+$plannerFoodsJson = json_encode(
+  $plannerFoods,
+  JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+);
+if ($plannerFoodsJson === false) {
+  error_log('[GEND-OFF] gizi_katalog_json gagal diserialisasi.');
+  $plannerFoodsJson = '[]';
+  $plannerCatalogLoaded = false;
+  $plannerFoodsError = 'Katalog makanan tidak dapat ditampilkan. Muat ulang halaman atau coba lagi nanti.';
+}
+$plannerCatalogVersion = hash('sha256', $plannerFoodsJson);
+$plannerHasMissingFiber = count(array_filter($plannerFoods, static fn($food) => $food['fiber'] === null)) > 0;
 
 $username = htmlspecialchars($_SESSION['username'] ?? 'Faaiz');
 $inisial  = htmlspecialchars(mb_strtoupper(mb_substr($_SESSION['username'] ?? 'F', 0, 1)));
@@ -662,6 +740,16 @@ body{
       <!-- GIZI PLANNER -->
       <section class="page active" id="page-gizi">
         <div class="sec-h"><h1>Gizi Planner</h1><p>Kebutuhan gizi harianmu dihitung dari hasil Deteksi Obesitas: gizi apa yang dibutuhkan, makanan sumbernya, cara mengolahnya, lalu menu harian dengan ceklist.</p></div>
+        <?php if ($plannerFoodsError !== ''): ?>
+          <div class="jt" role="alert"><?= htmlspecialchars($plannerFoodsError, ENT_QUOTES, 'UTF-8') ?></div>
+        <?php elseif (!$plannerFoods): ?>
+          <div class="jt" role="status">Belum ada makanan aktif yang tersedia di katalog database.</div>
+        <?php else: ?>
+          <div class="jt" role="status">Katalog, nilai gizi per porsi, dan metode pengolahan dimuat dari database.</div>
+          <?php if ($plannerHasMissingFiber): ?>
+            <div class="jt" role="status">Sebagian makanan belum memiliki data serat; nilai yang kosong tidak ditampilkan sebagai nol.</div>
+          <?php endif; ?>
+        <?php endif; ?>
         <div class="card gz-top" id="gzTop"></div>
         <div class="g3">
           <div class="card" id="c1"></div>
@@ -716,11 +804,14 @@ $$('#nav > *').forEach((e,i)=>e.style.setProperty('--i',i));
 $$('[data-i]').forEach(e=>e.innerHTML=ICON[e.dataset.i]);
 
 /* ===== STATE (kunci sama dengan dashboard agar data tersinkron) ===== */
-const KEY='gendoff_dash_v3';let S;
+const KEY='gendoff_dash_v3';let S,catalogChanged=false;
 function load(){
   let raw=null;try{raw=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
   const first=!raw;
+  catalogChanged=CATALOG_LOADED&&!!raw&&raw.catalogVersion!==CATALOG_VERSION;
   S=Object.assign({target:1600,tb:170,bb:70.8,goal:65,water:first?4:0,eaten:first?{0:true}:{},checks:first?[true,true,false,false]:[false,false,false,false],day:'',weights:null,waists:null,last:null},raw||{});
+  if(catalogChanged){S.chk={};S.mk=[];S.eaten={};}
+  if(CATALOG_LOADED)S.catalogVersion=CATALOG_VERSION;
   const today=new Date().toDateString();
   if(!first&&S.day!==today){S.water=0;S.eaten={};S.checks=[false,false,false,false];S.chk={};S.mk=[]}
   S.day=today;
@@ -742,59 +833,45 @@ const side=$('#sidebar'),scrim=$('#scrim');
 function closeSide(){side.classList.remove('open');scrim.classList.remove('show')}
 $('#burger').onclick=()=>{side.classList.add('open');scrim.classList.add('show')};scrim.onclick=closeSide;
 
-/* ===== DATA MAKANAN =====
-   FOOD: [nama, emoji, label porsi, gram, kkal, protein, karbo, lemak, serat, metode[]]
-   metode: [nama, bahan tambahan, +kkal, +lemak g, status ok|batas|no, catatan] */
-const FOOD={
- tl:['Telur ayam','🥚','1 butir',55,78,6,1,5,0,[['Rebus','Tanpa tambahan',0,0,'ok','Paling hemat kalori, rebus 9–10 menit'],['Dadar teflon','+1 sdt minyak, bawang, daun bawang',45,5,'batas','Pakai teflon, hindari santan atau keju'],['Goreng/ceplok','+2 sdm minyak',160,18,'no','Menyerap banyak minyak, kalori hampir tiga kali lipat']]],
- ay:['Dada ayam tanpa kulit','🍗','1 potong',100,165,31,0,4,0,[['Panggang/kukus','Bumbu rempah + perasan jeruk',10,0,'ok','Buang kulit agar lemak jenuh turun'],['Tumis sayur','+1 sdt minyak, bawang, brokoli',50,5,'batas','Tambah sayur supaya kenyang tanpa banyak kalori'],['Goreng tepung','+tepung, 2 sdm minyak',190,15,'no','Tepung dan minyak menambah ±190 kkal']]],
- ik:['Ikan nila','🐟','1 potong',100,128,26,0,3,0,[['Kukus/pepes','Daun pisang, kunyit, tomat',20,1,'ok','Tanpa minyak, aroma kuat tanpa kalori tambahan'],['Panggang','+1 sdt kecap, jeruk nipis',15,0,'ok','Olesi tipis agar tidak gosong'],['Goreng','+2 sdm minyak',170,18,'no','Minyak menempel di kulit, kalori naik tajam']]],
- tp:['Tempe','🫘','2 potong',50,100,10,4,5,1,[['Kukus/panggang','Tanpa tambahan',0,0,'ok','Protein nabati, rendah lemak jenuh'],['Tumis','+1 sdt minyak, cabai, bawang',45,5,'batas','Sedikit minyak, kurangi kecap manis'],['Goreng (mendoan)','+tepung, 2 sdm minyak',150,16,'no','Berminyak, cukup sesekali']]],
- nm:['Nasi merah','🍚','1 centong',100,110,3,23,1,2,[['Tanak biasa','Air saja',0,0,'ok','Takar 100 g matang per centong'],['Nasi goreng','+1 sdm minyak, kecap, telur',110,8,'batas','Pakai 1 sdt minyak dan banyak sayur'],['Nasi uduk','+santan',90,8,'no','Santan tinggi lemak jenuh']]],
- ub:['Ubi jalar','🍠','1 buah sedang',100,86,2,20,0,3,[['Rebus/kukus','Tanpa tambahan',0,0,'ok','Indeks glikemik lebih rendah daripada digoreng'],['Panggang','Tanpa minyak',5,0,'ok','Manis alami, tak perlu gula'],['Goreng','+2 sdm minyak',150,15,'no','Kalori hampir dua kali lipat']]],
- ot:['Oatmeal','🥣','3 sdm kering',40,152,5,27,3,4,[['Seduh air panas','+kayu manis, potongan buah',20,0,'ok','Tambah buah, bukan gula'],['Pakai susu rendah lemak','+150 ml susu',55,1,'batas','Hitung kalori susunya'],['Granola + madu','+2 sdm madu, granola',140,4,'no','Gula tambahan cepat menambah kalori']]],
- av:['Alpukat','🥑','½ buah',100,160,2,9,15,7,[['Dimakan langsung','Perasan jeruk nipis',0,0,'ok','Lemak tak jenuh, ½ buah sudah cukup'],['Smoothie tanpa gula','+susu skim, es',45,0,'batas','Jangan tambah susu kental manis'],['Jus + susu kental manis','+2 sdm SKM, gula',140,2,'no','Gula tambahan menggandakan kalori']]],
- kt:['Kacang tanah','🥜','1 genggam',30,95,4,4,7,2,[['Rebus','Garam sedikit',0,0,'ok','Satu genggam saja, mudah kebablasan'],['Sangrai kering','Tanpa minyak',10,0,'batas','Takar 30 g, jangan langsung dari toples'],['Goreng/kacang bawang','+minyak, tepung',90,8,'no','Berminyak dan asin']]],
- al:['Almond','🌰','1 genggam kecil',20,116,4,4,10,3,[['Mentah/sangrai','Tanpa garam',0,0,'ok','20 g sekitar 15 butir'],['Campur yoghurt','+100 g yoghurt plain',63,2,'batas','Pilih yoghurt tanpa gula'],['Almond cokelat','+gula, cokelat',90,5,'no','Gula tambahan']]],
- by:['Bayam','🥬','1 mangkuk',100,23,3,4,0,2,[['Rebus/blanch','Tanpa minyak',0,0,'ok','Rebus 2 menit agar vitamin tidak hilang'],['Tumis bawang putih','+1 sdt minyak',45,5,'batas','Sedikit minyak membantu serap vitamin A dan K'],['Lodeh santan','+100 ml santan',130,13,'no','Santan tinggi lemak jenuh']]],
- br:['Brokoli','🥦','1 mangkuk',100,35,2,7,0,3,[['Kukus','Tanpa tambahan',0,0,'ok','Kukus 4–5 menit tetap renyah'],['Tumis','+1 sdt minyak, bawang putih',45,5,'batas','Pakai teflon agar minyak sedikit'],['Gratin keju','+keju, krim',150,12,'no','Keju dan krim menambah lemak jenuh']]],
- pp:['Pepaya','🍈','1 potong',150,65,1,16,0,3,[['Segar dipotong','Tanpa tambahan',0,0,'ok','Serat dan enzim baik untuk pencernaan'],['Jus tanpa gula','+air, es',5,0,'batas','Serat berkurang bila disaring'],['Es campur sirup','+sirup, susu kental manis',120,2,'no','Gula tambahan tinggi']]]
-};
-const SRC={p:['tl','ay','ik','tp'],c:['nm','ub','ot'],l:['av','kt','al'],fi:['by','br','pp']};
-const VK={p:5,c:6,l:7,fi:8};
-/* makanan lain untuk fitur cari (porsi dan gizi perkiraan); indeks 9 = kelompok pengolahan */
-const EXTRA={
- sp:['Daging sapi tanpa lemak','🥩','1 potong',100,180,27,0,8,0,'g'],ud:['Udang','🦐','1 porsi',100,99,24,0,.3,0,'g'],cu:['Cumi-cumi','🦑','1 porsi',100,92,16,3,1,0,'g'],
- tn:['Tuna kaleng (dalam air)','🐟','1 porsi',100,116,26,0,1,0,'g'],sl:['Salmon','🍣','1 potong',100,206,22,0,12,0,'g'],th:['Tahu','⬜','2 potong',100,76,8,2,5,0,'g'],
- yg:['Yoghurt plain','🥛','1 cup',100,63,5,7,2,0,'d'],sk:['Susu skim','🥛','1 gelas',250,90,8,12,0,0,'d'],cc:['Keso cottage','🧀','1 porsi',100,98,11,3,4,0,'d'],
- ks:['Kacang merah rebus','🫘','1 porsi',100,127,9,23,.5,6,'g'],kh:['Kacang hijau rebus','🫘','1 porsi',100,105,7,19,.4,8,'g'],ed:['Edamame rebus','🫛','1 porsi',80,95,9,7,4,4,'g'],
- kn:['Kentang rebus','🥔','1 buah',100,87,2,20,0,2,'g'],sg:['Singkong rebus','🥔','1 porsi',100,160,1,38,0,2,'g'],jg:['Jagung rebus','🌽','1 tongkol',100,96,3,21,1.5,2,'g'],
- tr:['Talas rebus','🥔','1 porsi',100,112,.5,26,0,4,'g'],np:['Nasi putih','🍚','1 centong',100,130,3,28,0,0,'g'],ps:['Pisang','🍌','1 buah',100,90,1,23,0,2,'f'],lb:['Labu kuning','🎃','1 porsi',100,26,1,7,0,.5,'v'],
- ch:['Biji chia','🌱','1 sdm',15,73,2.5,6,4.6,5,'n'],kw:['Kenari','🌰','1 genggam kecil',20,131,3,3,13,1,'n'],sb:['Biji bunga matahari','🌻','1 genggam kecil',20,117,4,4,10,2,'n'],
- sk2:['Selai kacang tanpa gula','🥜','1 sdm',16,94,4,3,8,1,'n'],mz:['Minyak zaitun','🫒','1 sdt',5,44,0,0,5,0,'o'],
- ap:['Apel','🍎','1 buah',150,78,.4,21,.3,3.6,'f'],jr:['Jeruk','🍊','1 buah',130,61,1,15,0,3,'f'],pr:['Pir','🍐','1 buah',150,86,.5,23,0,5,'f'],jb:['Jambu biji','🍈','1 buah',100,68,3,14,1,5,'f'],
- wt:['Wortel rebus','🥕','1 mangkuk',100,35,1,8,0,3,'v'],kk:['Kangkung','🥬','1 mangkuk',100,20,2,3,0,2,'v'],bc:['Buncis rebus','🫛','1 mangkuk',100,35,2,8,0,3,'v'],
- kf:['Kembang kol','🥦','1 mangkuk',100,23,2,4,.5,2,'v'],sw:['Sawi hijau','🥬','1 mangkuk',100,15,2,2,0,2,'v']
-};
-const METH={
- g:[['Rebus/kukus','Tanpa minyak',0,0,'ok','Cara paling hemat kalori'],['Tumis/panggang','+1 sdt minyak',45,5,'batas','Pakai sedikit minyak dan tambah sayur'],['Goreng','+2 sdm minyak',160,18,'no','Menyerap banyak minyak, kalori naik tajam']],
- v:[['Rebus/kukus','Tanpa minyak',0,0,'ok','Rebus singkat agar vitamin tidak hilang'],['Tumis','+1 sdt minyak',45,5,'batas','Pakai teflon agar minyak sedikit'],['Lodeh santan','+100 ml santan',130,13,'no','Santan tinggi lemak jenuh']],
- f:[['Segar dipotong','Tanpa tambahan',0,0,'ok','Serat utuh, paling mengenyangkan'],['Jus tanpa gula','+air, es',5,0,'batas','Serat berkurang bila disaring'],['Jus/es dengan gula','+gula, susu kental manis',120,2,'no','Gula tambahan tinggi']],
- n:[['Mentah/sangrai kering','Tanpa garam',0,0,'ok','Takar satu genggam kecil'],['Campur yoghurt/oatmeal','+yoghurt plain',63,2,'batas','Hitung kalori campurannya'],['Berlapis gula/cokelat','+gula, cokelat',90,5,'no','Gula tambahan dan lemak jenuh']],
- d:[['Langsung dimakan/diminum','Tanpa gula',0,0,'ok','Pilih plain atau rendah lemak'],['Campur buah','+buah potong',60,0,'batas','Hitung kalori buahnya'],['Rasa manis/kental manis','+gula, SKM',120,2,'no','Gula tambahan tinggi']],
- o:[['Dressing salad','Perasan jeruk, cuka',0,0,'ok','Takar dengan sendok teh'],['Tumis ringan','Pengganti minyak lain',0,0,'batas','Jangan ditambah minyak lain'],['Deep frying','Minimal 2 sdm',200,22,'no','Sangat padat kalori']]
-};
-const ALL=Object.assign({},FOOD,EXTRA);
-const meths=F=>Array.isArray(F[9])?F[9]:METH[F[9]];
 const TH={p:5,c:15,l:3,fi:2.5}; /* ambang kandungan per 100 g */
 const TIP=['Kaya serat dan protein untuk menahan lapar sampai makan siang. Aman untuk penderita asam lambung.','Isi setengah piringmu dengan sayur supaya kenyang lebih lama.','Pilih camilan utuh dan hindari minuman manis.','Beri jeda 2–3 jam sebelum tidur agar pencernaan nyaman.'];
-/* menu harian: [makanan, indeks metode, porsi dasar]; indeks MEALS sama dengan dashboard */
-const MEALS=[
- {k:'Sarapan',e:'🍳',share:.22,d:[['ot',0,1],['tl',0,1],['pp',0,1]]},
- {k:'Makan Siang',e:'🍛',share:.34,d:[['nm',0,1.5],['ay',0,1],['by',1,1],['tp',0,1]]},
- {k:'Snack',e:'🍎',share:.10,d:[['al',0,1],['pp',0,1]]},
- {k:'Makan Malam',e:'🐟',share:.34,d:[['ik',0,1],['nm',0,1.5],['br',1,1],['av',0,.5]]}
+
+const FOOD_ROWS=<?= $plannerFoodsJson ?>;
+const CATALOG_VERSION=<?= json_encode($plannerCatalogVersion) ?>;
+const CATALOG_LOADED=<?= $plannerCatalogLoaded ? 'true' : 'false' ?>;
+const FOOD=Object.fromEntries(FOOD_ROWS.map(row=>[row.id,[
+  row.name,row.emoji,row.portion,row.grams,row.kcal,row.protein,row.carbohydrate,row.fat,row.fiber,
+  row.methods.map(method=>[method.name,method.addition,method.kcal,method.fat,method.status,method.note]),row.category
+]]));
+const ALL=FOOD;
+const categoryFoods=(...categories)=>Object.keys(FOOD).filter(id=>categories.includes(FOOD[id][10]));
+const SRC={
+  p:categoryFoods('Protein hewani','Kacang & kedelai','Susu & olahan'),
+  c:categoryFoods('Karbohidrat'),
+  l:categoryFoods('Kacang & kedelai','Susu & olahan','Lemak & minyak'),
+  fi:categoryFoods('Sayuran','Buah','Kacang & kedelai')
+};
+const VK={p:5,c:6,l:7,fi:8};
+const meths=F=>F[9];
+const daySeed=new Date().getDate();
+const pickForMeal=(category,offset)=>{
+  const choices=categoryFoods(category).filter(id=>meths(FOOD[id]).some(item=>item[4]==='ok'));
+  if(!choices.length)return null;
+  const id=choices[(daySeed+offset)%choices.length],methods=meths(FOOD[id]);
+  const method=methods.findIndex(item=>item[4]==='ok');
+  if(method<0)return null;
+  return[id,method,1];
+};
+const mealTemplates=[
+  {k:'Sarapan',e:'🍳',share:.22,categories:['Karbohidrat','Susu & olahan','Buah']},
+  {k:'Makan Siang',e:'🍛',share:.34,categories:['Karbohidrat','Protein hewani','Sayuran','Kacang & kedelai']},
+  {k:'Snack',e:'🍎',share:.10,categories:['Buah','Kacang & kedelai']},
+  {k:'Makan Malam',e:'🐟',share:.34,categories:['Karbohidrat','Protein hewani','Sayuran']}
 ];
+const MEALS=mealTemplates.map((meal,mealIndex)=>({
+  ...meal,
+  d:meal.categories.map((category,index)=>pickForMeal(category,mealIndex*3+index)).filter(Boolean)
+}));
 const ORDER=[0,1,3,2];
 
 /* ===== HITUNG ===== */
@@ -807,9 +884,14 @@ function needs(){
    l:{n:'Lemak',e:'🥑',g:l,kc:l*9,w:'±25% energi; utamakan lemak tak jenuh'},
    fi:{n:'Serat',e:'🥬',g:fi,kc:0,w:'Bikin kenyang lebih lama, pencernaan lancar'}};
 }
-const itemOf=(id,mj,q)=>{const F=FOOD[id],M=F[9][mj];return{F,M,q,g:Math.round(F[3]*q),kcal:Math.round((F[4]+M[2])*q),p:F[5]*q,c:F[6]*q,l:(F[7]+M[3])*q,fi:F[8]*q}};
+const itemOf=(id,mj,q)=>{const F=FOOD[id],M=F[9][mj];return{F,M,q,g:Math.round(F[3]*q),kcal:Math.round((F[4]+M[2])*q),p:F[5]*q,c:F[6]*q,l:(F[7]+M[3])*q,fi:F[8]===null?0:F[8]*q}};
+const fiberLabel=x=>x.F[8]===null?'—':Math.round(x.fi);
 function mealItems(i){
-  const m=MEALS[i],bud=mealKcal(i),base=m.d.reduce((s,x)=>s+(FOOD[x[0]][4]+FOOD[x[0]][9][x[1]][2])*x[2],0),f=Math.min(3,Math.max(.5,bud/base));
+  const m=MEALS[i],bud=mealKcal(i);
+  if(!m.d.length)return[];
+  const base=m.d.reduce((s,x)=>s+(FOOD[x[0]][4]+FOOD[x[0]][9][x[1]][2])*x[2],0);
+  if(!base)return m.d.map(x=>itemOf(x[0],x[1],x[2]));
+  const f=Math.min(3,Math.max(.5,bud/base));
   return m.d.map(x=>itemOf(x[0],x[1],Math.max(.5,Math.round(x[2]*f*2)/2)));
 }
 function eatenTot(){const t={kcal:0,p:0,c:0,l:0,fi:0};
@@ -819,7 +901,7 @@ function sync(i){const ck=S.chk[i]||[];let k=0,n=0;
   S.mk[i]=k;S.eaten[i]=n>0;if(n)S.checks[1]=true}
 
 /* ===== TAMPILAN ===== */
-let selN='p',selId='tl',qry='',mi=0,logView=false;
+let selN='p',selId=Object.keys(FOOD)[0]||'',qry='',mi=0,logView=false;
 const gh=(n,t,s)=>`<div class="gh"><i>${n}</i><div><b>${t}</b><small>${s}</small></div></div>`;
 function drawTop(){
   const L=S.last;
@@ -842,12 +924,12 @@ function draw1(){
    (adj.length?`<div class="adj"><b>Penyesuaian dari analisismu</b><ul>${adj.map(a=>`<li>${a}</li>`).join('')}</ul></div>`:'');
 }
 function rowF(id,N){
-  const F=ALL[id],v=F[VK[selN]],jt=Math.max(.5,Math.round(N.g*.25/v*2)/2),nl=N.n.toLowerCase();
-  return `<button class="fd ${id===selId?'on':''}" data-f="${id}"><span class="ne">${F[1]}</span><span class="nb"><b>${F[0]}</b><small>${F[2]} (${F[3]} g): ${dec(v,1)} g ${nl} · ${F[4]} kkal</small><em>Jatah harian: ${qs(jt)} porsi ≈ ${Math.round(jt*F[3])} g</em></span><span class="nv"><b>${Math.round(v/N.g*100)}%</b><small>kebutuhan/porsi</small></span></button>`;
+  const F=ALL[id],v=F[VK[selN]],available=v!==null&&v>0,jt=available?Math.max(.5,Math.round(N.g*.25/v*2)/2):0,nl=N.n.toLowerCase();
+  return `<button class="fd ${id===selId?'on':''}" data-f="${id}"><span class="ne">${esc(F[1])}</span><span class="nb"><b>${esc(F[0])}</b><small>${esc(F[2])} (${F[3]} g): ${v===null?'data belum tersedia':dec(v,1)+' g '+nl} · ${F[4]} kkal</small><em>${available?`Jatah harian: ${qs(jt)} porsi ≈ ${Math.round(jt*F[3])} g`:'Kandungan gizi ini belum tersedia untuk makanan ini.'}</em></span><span class="nv"><b>${available?Math.round(v/N.g*100)+'%':'—'}</b><small>kebutuhan/porsi</small></span></button>`;
 }
 function list2(){
   const N=needs()[selN],nl=N.n.toLowerCase(),q=qry.trim().toLowerCase(),k=VK[selN],main=SRC[selN],hit=id=>!q||ALL[id][0].toLowerCase().includes(q);
-  const m=main.filter(hit),o=Object.keys(ALL).filter(id=>!main.includes(id)&&ALL[id][k]/ALL[id][3]*100>=TH[selN]&&hit(id)).sort((a,b)=>ALL[b][k]/ALL[b][3]-ALL[a][k]/ALL[a][3]);
+  const m=main.filter(hit),o=Object.keys(ALL).filter(id=>!main.includes(id)&&ALL[id][k]!==null&&ALL[id][k]/ALL[id][3]*100>=TH[selN]&&hit(id)).sort((a,b)=>ALL[b][k]/ALL[b][3]-ALL[a][k]/ALL[a][3]);
   return m.map(id=>rowF(id,N)).join('')+(o.length?o.map(id=>rowF(id,N)).join(''):'')+
    (!m.length&&!o.length?`<div class="jt">Tidak ada makanan "${esc(qry)}" dengan kandungan ${nl} yang cukup.</div>`:'');
 }
@@ -861,16 +943,21 @@ function draw2(){
 function draw3(){
   const F=ALL[selId],T=S.target,lam=/lambung|maag|gerd/.test((S.last&&S.last.pen)||'');
   const st={ok:'Aman untuk defisit',batas:'Batasi',no:'Hindari saat defisit'};
-  $('#c3').innerHTML=gh(3,'Pengolahan '+F[0].toLowerCase(),'Kalori per '+F[2]+' ('+F[3]+' g) setelah dimasak')+
-   `<div class="lw"><div class="ls">${meths(F).map(M=>{const k=F[4]+M[2],l=F[7]+M[3];
-    return `<div class="mth ${M[4]}"><div class="t"><b>${F[1]} ${M[0]}</b><span class="stt">${st[M[4]]}</span></div><p>${M[1]}. ${M[5]}.${lam&&M[4]!=='ok'?' Riwayat asam lambung: sebaiknya dihindari.':''}</p><div class="nm">${Math.round(k)} kkal · lemak ${dec(l,1)} g · ${dec(k/T*100,1)}% target harian</div></div>`}).join('')}
+  if(!F){
+    $('#c3').innerHTML=gh(3,'Metode pengolahan','Pilih makanan dari katalog yang tersedia')+'<div class="jt">Belum ada makanan yang bisa ditampilkan.</div>';
+    return;
+  }
+  const methods=meths(F);
+  $('#c3').innerHTML=gh(3,'Pengolahan '+esc(F[0].toLowerCase()),'Kalori per '+esc(F[2])+' ('+F[3]+' g) setelah dimasak')+
+   `<div class="lw"><div class="ls">${methods.length?methods.map(M=>{const k=F[4]+M[2],l=F[7]+M[3];
+    return `<div class="mth ${M[4]}"><div class="t"><b>${esc(F[1])} ${esc(M[0])}</b><span class="stt">${st[M[4]]}</span></div><p>${esc(M[1])}.${M[5]?` ${esc(M[5])}.`:''}${lam&&M[4]!=='ok'?' Riwayat asam lambung: sebaiknya dihindari.':''}</p><div class="nm">${Math.round(k)} kkal · lemak ${dec(l,1)} g · ${dec(k/T*100,1)}% target harian</div></div>`}).join(''):'<div class="jt">Belum ada metode pengolahan untuk makanan ini di database.</div>'}
    <div class="jt" style="margin:12px 0 0">Anggaran per makan: ${ORDER.map(i=>MEALS[i].k+' '+mealKcal(i)).join(' · ')} kkal. Pilih pengolahan yang masih muat, dan hitung bahan tambahannya.</div></div></div>`;
 }
-const mealDone=i=>{const ck=S.chk[i]||[];return mealItems(i).every((_,j)=>ck[j])};
+const mealDone=i=>{const ck=S.chk[i]||[],items=mealItems(i);return items.length>0&&items.every((_,j)=>ck[j])};
 function logCard(t){
   let n=0;
   const groups=ORDER.map(i=>{const ck=S.chk[i]||[],its=mealItems(i);
-    const rows=its.map((x,j)=>ck[j]?`<label class="ck on lgk"><input type="checkbox" data-m="${i}" data-j="${j}" checked><div><b>${x.F[0]} · ${x.M[0]}</b><small>${qs(x.q)} × ${x.F[2]} ≈ ${x.g} g · P ${Math.round(x.p)} · K ${Math.round(x.c)} · L ${Math.round(x.l)} · S ${Math.round(x.fi)} g</small></div><span>${x.kcal} kkal</span></label>`:'').join('');
+    const rows=its.map((x,j)=>ck[j]?`<label class="ck on lgk"><input type="checkbox" data-m="${i}" data-j="${j}" checked><div><b>${esc(x.F[0])} · ${esc(x.M[0])}</b><small>${qs(x.q)} × ${esc(x.F[2])} ≈ ${x.g} g · P ${Math.round(x.p)} · K ${Math.round(x.c)} · L ${Math.round(x.l)} · S ${fiberLabel(x)} g</small></div><span>${x.kcal} kkal</span></label>`:'').join('');
     const c=its.filter((_,j)=>ck[j]).length;n+=c;
     return c?`<div class="lg-h">${MEALS[i].e} ${MEALS[i].k}<span>${S.mk[i]||0} kkal</span></div>${rows}`:''}).join('');
   return `<div class="mh"><div class="em">✅</div><div><h3>Sudah dimakan</h3><small>${n} makanan tercatat hari ini · tersimpan otomatis</small></div><div class="kal">${fmt(t.kcal)} kkal</div></div>
@@ -878,6 +965,12 @@ function logCard(t){
    :`<div class="jt">Belum ada makanan yang dicentang. Pilih waktu makan, lalu centang makanan yang sudah kamu makan; semuanya tersimpan di sini.</div>`}`;
 }
 function draw4(){
+  if(!Object.keys(FOOD).length){
+    $('#mTabs').innerHTML='';
+    $('#mCard').innerHTML=gh(4,'Menu harian','Menu akan tersedia setelah katalog aktif diisi.')+'<div class="jt">Belum ada makanan aktif dari database untuk menyusun menu harian.</div>';
+    $('#mSum').innerHTML='<div class="jt">Ringkasan makan akan tampil setelah katalog makanan tersedia.</div>';
+    return;
+  }
   const N=needs(),t=eatenTot(),T=S.target,m=MEALS[mi],its=mealItems(mi),ck=S.chk[mi]||[],all=mealDone(mi);
   const pl={kcal:0,p:0,c:0,l:0,fi:0},gt={kcal:0,p:0,c:0,l:0,fi:0};
   its.forEach((x,j)=>{for(const k in pl){pl[k]+=x[k];if(ck[j])gt[k]+=x[k]}});
@@ -885,7 +978,7 @@ function draw4(){
   $('#mTabs').innerHTML=ORDER.map(i=>`<button class="tab ${!logView&&i===mi?'on':''} ${S.eaten[i]?'done':''}" data-i="${i}">${MEALS[i].e} ${MEALS[i].k}<small>${mealKcal(i)}</small></button>`).join('')+
    `<button class="tab log ${logView?'on':''}" data-i="log">✅ Sudah dimakan<span class="cnt">${nLog}</span></button>`;
   $('#mCard').innerHTML=logView?logCard(t):`<div class="mh"><div class="em">${m.e}</div><div><h3>${m.k}</h3><small>Anggaran ±${mealKcal(mi)} kkal · ${Math.round(m.share*100)}% dari targetmu</small></div><div class="kal">${S.mk[mi]||0} / ${mealKcal(mi)} kkal</div></div>
-   ${its.map((x,j)=>`<label class="ck ${ck[j]?'on':''}"><input type="checkbox" data-m="${mi}" data-j="${j}" ${ck[j]?'checked':''}><div><b>${x.F[0]} · ${x.M[0]}</b><small>${qs(x.q)} × ${x.F[2]} ≈ ${x.g} g · P ${Math.round(x.p)} · K ${Math.round(x.c)} · L ${Math.round(x.l)} · S ${Math.round(x.fi)} g</small></div><span>${x.kcal} kkal</span></label>`).join('')}
+   ${its.map((x,j)=>`<label class="ck ${ck[j]?'on':''}"><input type="checkbox" data-m="${mi}" data-j="${j}" ${ck[j]?'checked':''}><div><b>${esc(x.F[0])} · ${esc(x.M[0])}</b><small>${qs(x.q)} × ${esc(x.F[2])} ≈ ${x.g} g · P ${Math.round(x.p)} · K ${Math.round(x.c)} · L ${Math.round(x.l)} · S ${fiberLabel(x)} g</small></div><span>${x.kcal} kkal</span></label>`).join('')}
    <div class="sbh" style="margin:14px 0 8px">Gizi menu ini (dimakan / rencana)</div>
    <div class="mm" style="grid-template-columns:repeat(4,1fr)">${[['Protein','p'],['Karbo','c'],['Lemak','l'],['Serat','fi']].map(([n,k])=>`<div><b>${Math.round(gt[k])}/${Math.round(pl[k])} g</b><span>${n}</span></div>`).join('')}</div>
    <button class="eat ${all?'on':''}" id="btAll">${all?'✓ Semua sudah dimakan':'Tandai semua sudah dimakan'}</button>
@@ -898,7 +991,7 @@ function draw4(){
    ${bar('Protein',t.p,N.p.g,'linear-gradient(90deg,#12524a,#0f7a4f)')}${bar('Karbohidrat',t.c,N.c.g,'linear-gradient(90deg,#7a9a2e,#a4c23d)')}${bar('Lemak',t.l,N.l.g,'linear-gradient(90deg,#e0a526,#f5b82e)')}${bar('Serat',t.fi,N.fi.g,'linear-gradient(90deg,#2e86ab,#6bb6d6)')}`;
   requestAnimationFrame(()=>$$('#mSum .tk i').forEach(i=>i.style.width=i.dataset.w+'%'));
 }
-$('#c1').addEventListener('click',e=>{const b=e.target.closest('.nut');if(!b)return;selN=b.dataset.n;selId=SRC[selN][0];qry='';draw1();draw2();draw3()});
+$('#c1').addEventListener('click',e=>{const b=e.target.closest('.nut');if(!b)return;selN=b.dataset.n;selId=SRC[selN][0]||Object.keys(FOOD)[0]||'';qry='';draw1();draw2();draw3()});
 $('#c2').addEventListener('input',e=>{if(e.target.id!=='q2')return;qry=e.target.value;$('#l2').innerHTML=list2()});
 $('#c2').addEventListener('click',e=>{const b=e.target.closest('.fd');if(!b)return;selId=b.dataset.f;$('#l2').innerHTML=list2();draw3()});
 $('#mTabs').addEventListener('click',e=>{const b=e.target.closest('.tab');if(!b)return;if(b.dataset.i==='log'){logView=true}else{logView=false;mi=+b.dataset.i}draw4()});
@@ -911,6 +1004,7 @@ $('#mCard').addEventListener('click',e=>{if(!e.target.closest('#btAll'))return;
 
 /* ===== INIT ===== */
 load();
+if(catalogChanged)toast('Katalog menu berubah; checklist menu lama dikosongkan.');
 function tick(){const n=new Date();
   $('#clkT').textContent=n.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).replace(/\./g,':');
   $('#clkD').textContent=n.toLocaleDateString('id-ID',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}

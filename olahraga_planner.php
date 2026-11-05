@@ -4,13 +4,8 @@
 // Peraga gerakan berupa animasi SVG (pria/wanita sesuai hasil deteksi), tidak butuh file gambar tambahan.
 session_start();
 
-// Simulasi login sementara (Hapus/sesuaikan baris ini jika sudah terhubung database)
-if (!isset($_SESSION['user_id'])) {
-    $_SESSION['user_id'] = 1;
-    $_SESSION['username'] = 'Pengguna';
-}
-// Aktifkan baris di bawah ini untuk proteksi halaman yang sebenarnya:
-// if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit; }
+// Halaman ini hanya untuk pengguna yang sudah login (simulasi login sementara sudah dihapus)
+if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit; }
 
 $username = htmlspecialchars($_SESSION['username'] ?? 'Faaiz');
 $inisial  = htmlspecialchars(mb_strtoupper(mb_substr($_SESSION['username'] ?? 'F', 0, 1)));

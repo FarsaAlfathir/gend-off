@@ -3,8 +3,8 @@
 // Letakkan di: htdocs/gend-off/dashboard.php | aset di: assets/
 session_start();
 
-// Halaman ini hanya untuk pengguna yang sudah login
-if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit; }
+require_once __DIR__ . '/gend_core.php';
+$G = gend_boot(true);
 
 $username = htmlspecialchars($_SESSION['username'] ?? 'Faaiz');
 $inisial  = htmlspecialchars(mb_strtoupper(mb_substr($_SESSION['username'] ?? 'F', 0, 1)));
@@ -447,6 +447,7 @@ body{
 @media(max-width:900px){.hero-vid{width:100%;opacity:.28}.iv-grid{grid-template-columns:1fr}.clk small,.clk-ic{display:none}.clk{padding:8px 12px}.sd-grid{grid-template-columns:1fr 1fr}.hero-card{padding:24px 20px}.hero-side{min-width:0;width:100%}.sec-h h1{font-size:1.4rem}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.cl{stroke-dashoffset:0!important}.ca,.cd{opacity:1!important}}
 </style>
+<?= gend_boot_script($G) ?>
 </head>
 <body>
 <div class="scrim" id="scrim"></div>
@@ -709,8 +710,7 @@ function drawChart(){
 $('#chart').addEventListener('mouseover',e=>{const c=e.target.closest('.cd');if(!c)return;const t=$('#tip'),r=$('#chart').getBoundingClientRect(),q=c.getBoundingClientRect();t.textContent=c.dataset.t;t.style.left=(q.left-r.left+q.width/2)+'px';t.style.top=(q.top-r.top)+'px';t.style.opacity=1});
 $('#chart').addEventListener('mouseout',e=>{if(e.target.closest('.cd'))$('#tip').style.opacity=0});
 $('#btW').onclick=()=>{if(chartMode==='lp'){addWaist();return}const v=parseFloat($('#inW').value);if(!v||v<20||v>300){toast('Masukkan berat badan yang valid');return}
-  const td=new Date().toDateString(),l=S.weights[S.weights.length-1];if(l.d===td)l.w=v;else S.weights.push({d:td,w:v});
-  S.bb=v;S.checks[0]=true;$('#inW').value='';save();renderAll();toast(`Berat ${dec(v,1)} kg tercatat`)};
+  catatProgres({bb:v},`Berat ${dec(v,1)} kg tercatat`)};
 
 
 /* ===== DETAIL KARTU STATISTIK ===== */
@@ -754,9 +754,32 @@ $('#chSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!
   $$('#chSeg button').forEach(x=>x.classList.toggle('on',x===b));
   $('#chT').textContent=chartMode==='lp'?'Grafik Lingkar Perut':'Grafik Berat Badan';
   $('#inW').placeholder=chartMode==='lp'?'cm hari ini':'kg hari ini';drawChart()});
-function addWaist(){const v=parseFloat($('#inW').value);if(!v||v<40||v>200){toast('Masukkan lingkar perut yang valid');return}
-  const td=new Date().toDateString(),l=S.waists[S.waists.length-1];if(l.d===td)l.w=v;else S.waists.push({d:td,w:v});
-  $('#inW').value='';save();renderAll();toast(`Lingkar perut ${dec(v,1)} cm tercatat`)}
+async function catatProgres(data,pesan){
+  const button=$('#btW');
+  const label=button.textContent;
+  button.disabled=true;
+  button.textContent='Menyimpan…';
+  try{
+    const response=await GEND.catat(data);
+    if(!response.ok){toast(response.error||'Progres gagal disimpan.');return}
+    S=Object.assign(S,JSON.parse(localStorage.getItem(KEY)||'{}'));
+    S.checks[0]=true;
+    save();
+    renderAll();
+    $('#inW').value='';
+    toast(pesan);
+  }catch(error){
+    toast('Tidak dapat menghubungi server. Progres belum tersimpan.');
+  }finally{
+    button.disabled=false;
+    button.textContent=label;
+  }
+}
+function addWaist(){
+  const v=parseFloat($('#inW').value);
+  if(!v||v<40||v>200){toast('Masukkan lingkar perut yang valid');return}
+  catatProgres({wa:v},`Lingkar perut ${dec(v,1)} cm tercatat`);
+}
 
 /* ===== HASIL DETEKSI TERAKHIR ===== */
 function renderLast(){
