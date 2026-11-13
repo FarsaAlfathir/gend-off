@@ -1,15 +1,17 @@
-# Graph Report - gend-off  (2026-10-29)
+# Graph Report - gend-off  (2026-11-13)
 
 ## Corpus Check
-- cluster-only mode — file stats not available
+- 17 files · ~1,989,650 words
+- Verdict: corpus is large enough that graph structure adds value.
+- Unclassified: 2 file(s) not represented in the graph (top: (none) 2)
 
 ## Summary
-- 343 nodes · 605 edges · 26 communities (16 shown, 10 thin omitted)
+- 349 nodes · 623 edges · 26 communities (16 shown, 10 thin omitted)
 - Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 29 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ac9b5cdf`
+- Built from commit: `d5315db3`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -41,24 +43,24 @@
 1. `render()` - 21 edges
 2. `renderAll()` - 16 edges
 3. `drawPl()` - 13 edges
-4. `daftar_user()` - 12 edges
+4. `draw4()` - 12 edges
 5. `sb_log()` - 12 edges
-6. `statInfo()` - 11 edges
-7. `sb_ok()` - 11 edges
-8. `cek_login()` - 10 edges
+6. `daftar_user()` - 12 edges
+7. `statInfo()` - 11 edges
+8. `sb_ok()` - 11 edges
 9. `sb_request()` - 10 edges
-10. `draw4()` - 9 edges
+10. `cek_login()` - 10 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `gend_catat_progres()` --calls--> `sb_log()`  [INFERRED]
-  gend_core.php → supabase.php
 - `gend_ref()` --calls--> `sb_log()`  [INFERRED]
   gend_core.php → supabase.php
+- `gend_ref()` --calls--> `sb_ok()`  [INFERRED]
+  gend_core.php → supabase.php
+- `gend_ref()` --calls--> `sb_rest()`  [INFERRED]
+  gend_core.php → supabase.php
+- `gend_ref()` --calls--> `sb_token()`  [INFERRED]
+  gend_core.php → supabase.php
 - `gend_simpan_deteksi()` --calls--> `sb_log()`  [INFERRED]
-  gend_core.php → supabase.php
-- `gend_state()` --calls--> `sb_log()`  [INFERRED]
-  gend_core.php → supabase.php
-- `gend_catat_progres()` --calls--> `sb_ok()`  [INFERRED]
   gend_core.php → supabase.php
 
 ## Import Cycles
@@ -70,12 +72,12 @@
 ## Communities (26 total, 10 thin omitted)
 
 ### Community 0 - "olahraga_planner.php"
-Cohesion: 0.09
-Nodes (38): ALL, countTo(), dec(), draw1(), draw2(), draw3(), draw4(), drawTop() (+30 more)
+Cohesion: 0.08
+Nodes (41): CATALOG_VERSION, categoryFoods(), countTo(), daySeed, dec(), draw1(), draw2(), draw3() (+33 more)
 
 ### Community 1 - "gizi_planner.php"
 Cohesion: 0.12
-Nodes (33): addWaist(), bmiNow(), cat(), closeSide(), countTo(), dec(), dlabel(), drawChart() (+25 more)
+Nodes (34): addWaist(), bmiNow(), cat(), catatProgres(), closeSide(), countTo(), dec(), dlabel() (+26 more)
 
 ### Community 2 - "dashboard.php"
 Cohesion: 0.17
@@ -135,7 +137,7 @@ Nodes (5): Person measuring waist with tape, Gend-off Logo, Avocado Mascot, Beet
 
 ## Knowledge Gaps
 - **10 isolated node(s):** `Person measuring waist with tape`, `Avocado Mascot`, `Beetroot Mascot`, `Carrot Mascot`, `Graphify Tool` (+5 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 148 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 149 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
@@ -148,9 +150,9 @@ _Questions this graph is uniquely positioned to answer:_
 - **What connects `Person measuring waist with tape`, `Avocado Mascot`, `Beetroot Mascot` to the rest of the system?**
   _10 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `olahraga_planner.php` be split into smaller, more focused modules?**
-  _Cohesion score 0.08562367864693446 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.08163265306122448 - nodes in this community are weakly interconnected._
 - **Should `gizi_planner.php` be split into smaller, more focused modules?**
-  _Cohesion score 0.12162162162162163 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.11948790896159317 - nodes in this community are weakly interconnected._
 - **Should `register.php` be split into smaller, more focused modules?**
   _Cohesion score 0.06890756302521009 - nodes in this community are weakly interconnected._
 - **Should `deteksi_obesitas.php` be split into smaller, more focused modules?**
