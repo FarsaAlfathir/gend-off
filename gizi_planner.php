@@ -6,7 +6,7 @@ session_start();
 // Halaman ini hanya untuk pengguna yang sudah login (simulasi login sementara sudah dihapus)
 if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit; }
 
-require_once __DIR__ . '/supabase.php';
+require_once __DIR__ . '/gend_core.php';
 
 $plannerFoods = [];
 $plannerFoodsError = '';
@@ -48,6 +48,7 @@ if (!$token) {
         $status = (string)($method['status'] ?? '');
         if (!in_array($status, ['ok', 'batas', 'no'], true)) continue;
         $methods[] = [
+          'id' => (string)$method['id_metode'],
           'name' => (string)$method['nama_metode'],
           'addition' => (string)$method['bahan_tambahan'],
           'kcal' => (int)$method['tambah_kkal'],
@@ -69,6 +70,11 @@ if (!$token) {
         'carbohydrate' => $perPorsi($bahan['karbo_per_gram'], $grams),
         'fat' => $perPorsi($bahan['lemak_per_gram'], $grams),
         'fiber' => $perPorsi($bahan['serat_per_gram'], $grams),
+        'kcalPer100g' => $bahan['kalori_per_gram'] === null ? null : (float)$bahan['kalori_per_gram'] * 100,
+        'proteinPer100g' => $bahan['protein_per_gram'] === null ? null : (float)$bahan['protein_per_gram'] * 100,
+        'carbohydratePer100g' => $bahan['karbo_per_gram'] === null ? null : (float)$bahan['karbo_per_gram'] * 100,
+        'fatPer100g' => $bahan['lemak_per_gram'] === null ? null : (float)$bahan['lemak_per_gram'] * 100,
+        'fiberPer100g' => $bahan['serat_per_gram'] === null ? null : (float)$bahan['serat_per_gram'] * 100,
         'category' => $category,
         'methods' => $methods,
       ];
@@ -92,6 +98,7 @@ $plannerHasMissingFiber = count(array_filter($plannerFoods, static fn($food) => 
 $username = htmlspecialchars($_SESSION['username'] ?? 'Faaiz');
 $inisial  = htmlspecialchars(mb_strtoupper(mb_substr($_SESSION['username'] ?? 'F', 0, 1)));
 $tahun    = date('Y');
+$plannerCsrf = gend_csrf();
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -707,6 +714,36 @@ body{
 .gh small{font-size:.7rem}
 .tab.log.on{color:#fff;border-color:var(--dark)}
 @media(max-width:900px){.gz-m{grid-template-columns:1fr;width:100%}.gz-top{padding:16px 18px}}
+.meal-status{margin:0 0 12px}
+.meal-search{width:100%;margin:0 0 10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-size:.84rem}
+.meal-search:focus{outline:none;border-color:var(--olive);box-shadow:0 0 0 3px rgba(164,194,61,.2)}
+.food-results{display:grid;gap:6px;max-height:250px;overflow:auto;margin-bottom:12px}
+.food-option{display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left;padding:10px 12px;border:1px solid var(--border-soft);border-radius:10px;background:#fff}
+.food-option:hover,.food-option.on{border-color:var(--olive);background:var(--tint)}
+.food-option b{display:block;color:var(--dark);font-size:.84rem}
+.food-option small{display:block;color:var(--faint);font-size:.72rem}
+.food-option span{font-family:var(--mono);font-size:.74rem;white-space:nowrap;color:var(--olive)}
+.meal-form,.custom-form{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}
+.meal-form label,.custom-form label{display:grid;gap:4px;font-size:.74rem;font-weight:700;color:var(--muted)}
+.meal-form input,.meal-form select,.custom-form input{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:9px;background:#fff}
+.meal-form .wide,.custom-form .wide{grid-column:1/-1}
+.meal-form button,.custom-form button,.custom-toggle,.log-actions button{padding:9px 12px;border:1px solid var(--border);border-radius:9px;font-size:.78rem;font-weight:800;background:var(--tint);color:var(--dark)}
+.meal-form button:hover,.custom-form button:hover,.custom-toggle:hover,.log-actions button:hover{border-color:var(--olive)}
+.meal-form button:disabled,.custom-form button:disabled{opacity:.55;cursor:not-allowed}
+.custom-form{padding:12px;border:1px solid var(--border-soft);border-radius:12px;background:var(--bg)}
+.food-preview{grid-column:1/-1;padding:10px;border-radius:9px;background:var(--tint);font-size:.76rem;color:var(--dark)}
+.food-log{padding:12px 0;border-bottom:1px solid var(--border-soft)}
+.food-log:last-child{border-bottom:0}
+.food-log-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.food-log-head b{color:var(--dark);font-size:.86rem}
+.food-log-head small{display:block;color:var(--faint);font-size:.72rem}
+.log-actions{display:flex;gap:6px;align-items:center;margin-top:8px}
+.log-actions input{width:90px;padding:7px;border:1px solid var(--border);border-radius:8px}
+.log-actions button.delete{background:#fff0ed;color:var(--red)}
+.meal-nutrients{font-size:.73rem;color:var(--muted);margin-top:4px}
+.meal-empty{padding:14px;border:1px dashed var(--border);border-radius:10px;color:var(--faint);font-size:.8rem}
+.meal-note{font-size:.73rem;color:var(--faint);margin:8px 0}
+@media(max-width:560px){.meal-form,.custom-form{grid-template-columns:1fr}.meal-form .wide,.custom-form .wide{grid-column:auto}.log-actions{flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -739,7 +776,7 @@ body{
     <main class="content">
       <!-- GIZI PLANNER -->
       <section class="page active" id="page-gizi">
-        <div class="sec-h"><h1>Gizi Planner</h1><p>Kebutuhan gizi harianmu dihitung dari hasil Deteksi Obesitas: gizi apa yang dibutuhkan, makanan sumbernya, cara mengolahnya, lalu menu harian dengan ceklist.</p></div>
+        <div class="sec-h"><h1>Gizi Planner</h1><p>Kebutuhan gizi harianmu dihitung dari hasil Deteksi Obesitas. Pilih makanan yang benar-benar kamu makan dan catat porsinya untuk melihat perkiraan asupan gizimu.</p></div>
         <?php if ($plannerFoodsError !== ''): ?>
           <div class="jt" role="alert"><?= htmlspecialchars($plannerFoodsError, ENT_QUOTES, 'UTF-8') ?></div>
         <?php elseif (!$plannerFoods): ?>
@@ -756,7 +793,8 @@ body{
           <div class="card" id="c2"></div>
           <div class="card" id="c3"></div>
         </div>
-        <div class="gh" style="margin:26px 0 14px"><i>4</i><div><b>Menu harian &amp; ceklist makan</b><small>Pilih waktu makan, centang yang sudah dimakan, gizinya langsung terhitung</small></div></div>
+        <div class="gh" style="margin:26px 0 14px"><i>4</i><div><b>Catatan makan harian</b><small>Pilih makanan sendiri, masukkan gram yang dimakan, lalu lihat hitungan gizinya</small></div></div>
+        <div class="jt meal-status" id="mealStatus" role="status">Memuat makanan pribadi dan catatan makanmu…</div>
         <div class="tabs" id="mTabs"></div>
         <div class="g2e">
           <div class="card" id="mCard"></div>
@@ -796,7 +834,7 @@ const ICON={
 const NAV=[
  {g:'Utama',items:[['dashboard','Dashboard','grid','dashboard.php']]},
  {g:'Pemeriksaan & Menu',items:[['deteksi','Deteksi Obesitas','pulse','deteksi_obesitas.php'],['gizi','Gizi Planner','salad','gizi_planner.php'],['olahraga','Olahraga','dumb','olahraga_planner.php']]},
- {g:'Konsultasi & Belajar',items:[['chatbot','Konsultasi AI','chat','dashboard.php#chatbot'],['edukasi','Edukasi Pengguna','book','dashboard.php#edukasi']]},
+ {g:'Belajar',items:[['edukasi','Edukasi Pengguna','book','dashboard.php#edukasi']]},
  {g:'Laporan & Akun',items:[['ekspor','Ekspor Laporan','file','dashboard.php#ekspor'],['profil','Kelola Profil','user','dashboard.php#profil']]}
 ];
 $('#nav').innerHTML=NAV.map(n=>`<div class="nav-label">${n.g}</div>`+n.items.map(i=>`<a class="nav-item${i[0]==='gizi'?' active':''}" href="${i[3]}"><span class="ic">${ICON[i[2]]}</span>${i[1]}</a>`).join('')).join('');
@@ -834,11 +872,11 @@ function closeSide(){side.classList.remove('open');scrim.classList.remove('show'
 $('#burger').onclick=()=>{side.classList.add('open');scrim.classList.add('show')};scrim.onclick=closeSide;
 
 const TH={p:5,c:15,l:3,fi:2.5}; /* ambang kandungan per 100 g */
-const TIP=['Kaya serat dan protein untuk menahan lapar sampai makan siang. Aman untuk penderita asam lambung.','Isi setengah piringmu dengan sayur supaya kenyang lebih lama.','Pilih camilan utuh dan hindari minuman manis.','Beri jeda 2–3 jam sebelum tidur agar pencernaan nyaman.'];
 
 const FOOD_ROWS=<?= $plannerFoodsJson ?>;
 const CATALOG_VERSION=<?= json_encode($plannerCatalogVersion) ?>;
 const CATALOG_LOADED=<?= $plannerCatalogLoaded ? 'true' : 'false' ?>;
+const GIZI_CSRF=<?= json_encode($plannerCsrf, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 const FOOD=Object.fromEntries(FOOD_ROWS.map(row=>[row.id,[
   row.name,row.emoji,row.portion,row.grams,row.kcal,row.protein,row.carbohydrate,row.fat,row.fiber,
   row.methods.map(method=>[method.name,method.addition,method.kcal,method.fat,method.status,method.note]),row.category
@@ -853,25 +891,13 @@ const SRC={
 };
 const VK={p:5,c:6,l:7,fi:8};
 const meths=F=>F[9];
-const daySeed=new Date().getDate();
-const pickForMeal=(category,offset)=>{
-  const choices=categoryFoods(category).filter(id=>meths(FOOD[id]).some(item=>item[4]==='ok'));
-  if(!choices.length)return null;
-  const id=choices[(daySeed+offset)%choices.length],methods=meths(FOOD[id]);
-  const method=methods.findIndex(item=>item[4]==='ok');
-  if(method<0)return null;
-  return[id,method,1];
-};
 const mealTemplates=[
-  {k:'Sarapan',e:'🍳',share:.22,categories:['Karbohidrat','Susu & olahan','Buah']},
-  {k:'Makan Siang',e:'🍛',share:.34,categories:['Karbohidrat','Protein hewani','Sayuran','Kacang & kedelai']},
-  {k:'Snack',e:'🍎',share:.10,categories:['Buah','Kacang & kedelai']},
-  {k:'Makan Malam',e:'🐟',share:.34,categories:['Karbohidrat','Protein hewani','Sayuran']}
+  {k:'Sarapan',key:'sarapan',e:'🍳',share:.22},
+  {k:'Makan Siang',key:'makan_siang',e:'🍛',share:.34},
+  {k:'Snack',key:'snack',e:'🍎',share:.10},
+  {k:'Makan Malam',key:'makan_malam',e:'🐟',share:.34}
 ];
-const MEALS=mealTemplates.map((meal,mealIndex)=>({
-  ...meal,
-  d:meal.categories.map((category,index)=>pickForMeal(category,mealIndex*3+index)).filter(Boolean)
-}));
+const MEALS=mealTemplates;
 const ORDER=[0,1,3,2];
 
 /* ===== HITUNG ===== */
@@ -884,24 +910,10 @@ function needs(){
    l:{n:'Lemak',e:'🥑',g:l,kc:l*9,w:'±25% energi; utamakan lemak tak jenuh'},
    fi:{n:'Serat',e:'🥬',g:fi,kc:0,w:'Bikin kenyang lebih lama, pencernaan lancar'}};
 }
-const itemOf=(id,mj,q)=>{const F=FOOD[id],M=F[9][mj];return{F,M,q,g:Math.round(F[3]*q),kcal:Math.round((F[4]+M[2])*q),p:F[5]*q,c:F[6]*q,l:(F[7]+M[3])*q,fi:F[8]===null?0:F[8]*q}};
-const fiberLabel=x=>x.F[8]===null?'—':Math.round(x.fi);
-function mealItems(i){
-  const m=MEALS[i],bud=mealKcal(i);
-  if(!m.d.length)return[];
-  const base=m.d.reduce((s,x)=>s+(FOOD[x[0]][4]+FOOD[x[0]][9][x[1]][2])*x[2],0);
-  if(!base)return m.d.map(x=>itemOf(x[0],x[1],x[2]));
-  const f=Math.min(3,Math.max(.5,bud/base));
-  return m.d.map(x=>itemOf(x[0],x[1],Math.max(.5,Math.round(x[2]*f*2)/2)));
-}
-function eatenTot(){const t={kcal:0,p:0,c:0,l:0,fi:0};
-  MEALS.forEach((_,i)=>{const ck=S.chk[i]||[];mealItems(i).forEach((x,j)=>{if(ck[j])for(const k in t)t[k]+=x[k]})});return t}
-function sync(i){const ck=S.chk[i]||[];let k=0,n=0;
-  mealItems(i).forEach((x,j)=>{if(ck[j]){k+=x.kcal;n++}});
-  S.mk[i]=k;S.eaten[i]=n>0;if(n)S.checks[1]=true}
-
 /* ===== TAMPILAN ===== */
-let selN='p',selId=Object.keys(FOOD)[0]||'',qry='',mi=0,logView=false;
+let selN='p',selId=Object.keys(FOOD)[0]||'',qry='',mi=0;
+let customFoods=[],mealLogs=[],selectedFoodKey='',mealSearch='',customFormOpen=false,mealApiReady=false;
+let mealMethodId='';
 const gh=(n,t,s)=>`<div class="gh"><i>${n}</i><div><b>${t}</b><small>${s}</small></div></div>`;
 function drawTop(){
   const L=S.last;
@@ -953,65 +965,193 @@ function draw3(){
     return `<div class="mth ${M[4]}"><div class="t"><b>${esc(F[1])} ${esc(M[0])}</b><span class="stt">${st[M[4]]}</span></div><p>${esc(M[1])}.${M[5]?` ${esc(M[5])}.`:''}${lam&&M[4]!=='ok'?' Riwayat asam lambung: sebaiknya dihindari.':''}</p><div class="nm">${Math.round(k)} kkal · lemak ${dec(l,1)} g · ${dec(k/T*100,1)}% target harian</div></div>`}).join(''):'<div class="jt">Belum ada metode pengolahan untuk makanan ini di database.</div>'}
    <div class="jt" style="margin:12px 0 0">Anggaran per makan: ${ORDER.map(i=>MEALS[i].k+' '+mealKcal(i)).join(' · ')} kkal. Pilih pengolahan yang masih muat, dan hitung bahan tambahannya.</div></div></div>`;
 }
-const mealDone=i=>{const ck=S.chk[i]||[],items=mealItems(i);return items.length>0&&items.every((_,j)=>ck[j])};
-function logCard(t){
-  let n=0;
-  const groups=ORDER.map(i=>{const ck=S.chk[i]||[],its=mealItems(i);
-    const rows=its.map((x,j)=>ck[j]?`<label class="ck on lgk"><input type="checkbox" data-m="${i}" data-j="${j}" checked><div><b>${esc(x.F[0])} · ${esc(x.M[0])}</b><small>${qs(x.q)} × ${esc(x.F[2])} ≈ ${x.g} g · P ${Math.round(x.p)} · K ${Math.round(x.c)} · L ${Math.round(x.l)} · S ${fiberLabel(x)} g</small></div><span>${x.kcal} kkal</span></label>`:'').join('');
-    const c=its.filter((_,j)=>ck[j]).length;n+=c;
-    return c?`<div class="lg-h">${MEALS[i].e} ${MEALS[i].k}<span>${S.mk[i]||0} kkal</span></div>${rows}`:''}).join('');
-  return `<div class="mh"><div class="em">✅</div><div><h3>Sudah dimakan</h3><small>${n} makanan tercatat hari ini · tersimpan otomatis</small></div><div class="kal">${fmt(t.kcal)} kkal</div></div>
-   ${n?groups+`<div class="sbh" style="margin:14px 0 8px">Total gizi yang sudah masuk</div><div class="mm" style="grid-template-columns:repeat(4,1fr)">${[['Protein','p'],['Karbo','c'],['Lemak','l'],['Serat','fi']].map(([k,f])=>`<div><b>${Math.round(t[f])} g</b><span>${k}</span></div>`).join('')}</div><div class="tipb">Hilangkan centang untuk membatalkan makanan dari catatan.</div>`
-   :`<div class="jt">Belum ada makanan yang dicentang. Pilih waktu makan, lalu centang makanan yang sudah kamu makan; semuanya tersimpan di sini.</div>`}`;
+const MEAL_API='api_gizi_makan.php';
+const shown=n=>n===null||n===undefined?'—':dec(Number(n),1);
+const mealFoodOptions=()=>[
+  ...FOOD_ROWS.map(f=>({key:'katalog:'+f.id,source:'katalog',id:f.id,name:f.name,emoji:f.emoji,grams:f.grams,
+    kcal:f.kcalPer100g===null?null:Number(f.kcalPer100g),protein:f.proteinPer100g===null?null:Number(f.proteinPer100g),
+    carbohydrate:f.carbohydratePer100g===null?null:Number(f.carbohydratePer100g),fat:f.fatPer100g===null?null:Number(f.fatPer100g),
+    fiber:f.fiberPer100g===null?null:Number(f.fiberPer100g),methods:f.methods})),
+  ...customFoods.map(f=>({key:'custom:'+f.id,source:'custom',id:f.id,name:f.nama_makanan,emoji:'🍽️',grams:100,
+    kcal:Number(f.kalori_per_100g),protein:Number(f.protein_per_100g),carbohydrate:Number(f.karbo_per_100g),
+    fat:Number(f.lemak_per_100g),fiber:f.serat_per_100g===null?null:Number(f.serat_per_100g),methods:[]}))
+];
+const selectedFood=()=>mealFoodOptions().find(f=>f.key===selectedFoodKey)||null;
+const selectedMethod=food=>food&&food.source==='katalog'?(food.methods||[]).find(method=>method.id===mealMethodId)||null:null;
+const logsForMeal=i=>mealLogs.filter(log=>log.jenis_waktu===MEALS[i].key);
+function totalsFor(logs){
+  return logs.reduce((t,log)=>({
+    kcal:t.kcal+Number(log.kalori_kcal),protein:t.protein+Number(log.protein_g),
+    carbohydrate:t.carbohydrate+Number(log.karbo_g),fat:t.fat+Number(log.lemak_g),
+    fiber:t.fiber+(log.serat_g===null?0:Number(log.serat_g)),
+    missingFiber:t.missingFiber||log.serat_g===null
+  }),{kcal:0,protein:0,carbohydrate:0,fat:0,fiber:0,missingFiber:false});
+}
+function setMealStatus(message,isError=false){
+  const status=$('#mealStatus');
+  status.textContent=message;
+  status.setAttribute('role',isError?'alert':'status');
+  status.style.borderColor=isError?'#f3c3ba':'';
+}
+async function mealRequest(payload){
+  const response=await fetch(MEAL_API,{
+    method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json','X-CSRF-Token':GIZI_CSRF},
+    body:JSON.stringify(payload)
+  });
+  let result;
+  try{result=await response.json()}catch(e){throw new Error('Respons server tidak dapat dibaca. Coba muat ulang halaman.')}
+  if(!response.ok||!result.ok){
+    const error=new Error(result.error||'Permintaan gagal. Coba lagi.');
+    error.setupRequired=!!result.setup_required;
+    if(result.login)location.href='login.php';
+    throw error;
+  }
+  return result;
+}
+function renderFoodResults(){
+  const q=mealSearch.trim().toLocaleLowerCase('id-ID');
+  const matches=mealFoodOptions().filter(food=>!q||food.name.toLocaleLowerCase('id-ID').includes(q)).slice(0,30);
+  $('#foodResults').innerHTML=matches.length?matches.map(food=>`<button type="button" class="food-option ${food.key===selectedFoodKey?'on':''}" data-select-food="${esc(food.key)}"><div><b>${esc(food.emoji)} ${esc(food.name)}</b><small>${food.source==='custom'?'Makanan pribadi':'Katalog'} · nilai gizi per 100 g</small></div><span>${food.kcal===null?'—':fmt(food.kcal)} kkal</span></button>`).join(''):'<div class="meal-empty">Makanan tidak ditemukan. Kamu bisa menambahkannya sebagai makanan pribadi.</div>';
+}
+function renderFoodPreview(){
+  const food=selectedFood(),grams=Number($('#mealGrams')&&$('#mealGrams').value);
+  if(!food||!Number.isFinite(grams)||grams<=0){$('#foodPreview').textContent='Pilih makanan dan masukkan jumlah gram untuk melihat perkiraan gizinya.';return}
+  const method=selectedMethod(food),ratio=grams/100,portionRatio=grams/food.grams,value=n=>n===null?'—':shown(n*ratio)+' g';
+  const kcal=food.kcal===null?null:food.kcal*ratio+(method?Number(method.kcal)*portionRatio:0);
+  const fat=food.fat===null?null:food.fat*ratio+(method?Number(method.fat)*portionRatio:0);
+  $('#foodPreview').textContent=`Perkiraan ${grams} g: ${kcal===null?'—':fmt(kcal)} kkal · Protein ${value(food.protein)} · Karbo ${value(food.carbohydrate)} · Lemak ${value(fat)} · Serat ${value(food.fiber)}`;
 }
 function draw4(){
-  if(!Object.keys(FOOD).length){
-    $('#mTabs').innerHTML='';
-    $('#mCard').innerHTML=gh(4,'Menu harian','Menu akan tersedia setelah katalog aktif diisi.')+'<div class="jt">Belum ada makanan aktif dari database untuk menyusun menu harian.</div>';
-    $('#mSum').innerHTML='<div class="jt">Ringkasan makan akan tampil setelah katalog makanan tersedia.</div>';
-    return;
-  }
-  const N=needs(),t=eatenTot(),T=S.target,m=MEALS[mi],its=mealItems(mi),ck=S.chk[mi]||[],all=mealDone(mi);
-  const pl={kcal:0,p:0,c:0,l:0,fi:0},gt={kcal:0,p:0,c:0,l:0,fi:0};
-  its.forEach((x,j)=>{for(const k in pl){pl[k]+=x[k];if(ck[j])gt[k]+=x[k]}});
-  const nLog=ORDER.reduce((a,i)=>a+(S.chk[i]||[]).filter(Boolean).length,0);
-  $('#mTabs').innerHTML=ORDER.map(i=>`<button class="tab ${!logView&&i===mi?'on':''} ${S.eaten[i]?'done':''}" data-i="${i}">${MEALS[i].e} ${MEALS[i].k}<small>${mealKcal(i)}</small></button>`).join('')+
-   `<button class="tab log ${logView?'on':''}" data-i="log">✅ Sudah dimakan<span class="cnt">${nLog}</span></button>`;
-  $('#mCard').innerHTML=logView?logCard(t):`<div class="mh"><div class="em">${m.e}</div><div><h3>${m.k}</h3><small>Anggaran ±${mealKcal(mi)} kkal · ${Math.round(m.share*100)}% dari targetmu</small></div><div class="kal">${S.mk[mi]||0} / ${mealKcal(mi)} kkal</div></div>
-   ${its.map((x,j)=>`<label class="ck ${ck[j]?'on':''}"><input type="checkbox" data-m="${mi}" data-j="${j}" ${ck[j]?'checked':''}><div><b>${esc(x.F[0])} · ${esc(x.M[0])}</b><small>${qs(x.q)} × ${esc(x.F[2])} ≈ ${x.g} g · P ${Math.round(x.p)} · K ${Math.round(x.c)} · L ${Math.round(x.l)} · S ${fiberLabel(x)} g</small></div><span>${x.kcal} kkal</span></label>`).join('')}
-   <div class="sbh" style="margin:14px 0 8px">Gizi menu ini (dimakan / rencana)</div>
-   <div class="mm" style="grid-template-columns:repeat(4,1fr)">${[['Protein','p'],['Karbo','c'],['Lemak','l'],['Serat','fi']].map(([n,k])=>`<div><b>${Math.round(gt[k])}/${Math.round(pl[k])} g</b><span>${n}</span></div>`).join('')}</div>
-   <button class="eat ${all?'on':''}" id="btAll">${all?'✓ Semua sudah dimakan':'Tandai semua sudah dimakan'}</button>
-   <div class="tipb"><b>Catatan gizi:</b> ${TIP[mi]}</div>`;
-  const bar=(l,v,g,bg)=>`<div class="nrow"><label><span>${l}</span><span>${Math.round(v)} / ${g} g</span></label><div class="tk"><i data-w="${Math.min(100,g?v/g*100:0)}" style="background:${bg}"></i></div></div>`;
-  $('#mSum').innerHTML=`<div class="card-t" style="margin-bottom:12px">Ringkasan hari ini</div><div class="tot"><b>${fmt(t.kcal)}</b><span>dari ${fmt(T)} kkal</span></div>
-   ${ORDER.map(i=>`<div class="sumrow"><label><span>${MEALS[i].e} ${MEALS[i].k} ${mealDone(i)?'✓':''}</span><span>${S.mk[i]||0} / ${mealKcal(i)} kkal</span></label><div class="tk"><i data-w="${Math.min(100,(S.mk[i]||0)/mealKcal(i)*100)}" style="background:${S.eaten[i]?'linear-gradient(90deg,#7a9a2e,#a4c23d)':'#d6dfc8'}"></i></div></div>`).join('')}
-   <p class="card-s" style="margin-top:6px">${T-t.kcal>=0?`Sisa ${fmt(T-t.kcal)} kkal masih aman hari ini.`:'Sudah melewati target hari ini.'}</p>
-   <div class="sbh">Gizi yang sudah masuk</div>
-   ${bar('Protein',t.p,N.p.g,'linear-gradient(90deg,#12524a,#0f7a4f)')}${bar('Karbohidrat',t.c,N.c.g,'linear-gradient(90deg,#7a9a2e,#a4c23d)')}${bar('Lemak',t.l,N.l.g,'linear-gradient(90deg,#e0a526,#f5b82e)')}${bar('Serat',t.fi,N.fi.g,'linear-gradient(90deg,#2e86ab,#6bb6d6)')}`;
+  const N=needs(),allTotals=totalsFor(mealLogs),current=logsForMeal(mi),m=MEALS[mi],foods=mealFoodOptions();
+  if(!selectedFoodKey||!foods.some(f=>f.key===selectedFoodKey))selectedFoodKey=foods[0]?foods[0].key:'';
+  const food=selectedFood(),methods=food&&food.source==='katalog'?(food.methods||[]):[];
+  if(!methods.some(method=>method.id===mealMethodId))mealMethodId='';
+  $('#mTabs').innerHTML=ORDER.map(i=>`<button class="tab ${i===mi?'on':''}" data-meal="${i}">${MEALS[i].e} ${MEALS[i].k}<small>${fmt(totalsFor(logsForMeal(i)).kcal)} kkal</small></button>`).join('');
+  $('#mCard').innerHTML=`<div class="mh"><div class="em">${m.e}</div><div><h3>${m.k}</h3><small>${current.length} makanan dicatat · acuan energi ±${mealKcal(mi)} kkal (bukan batas wajib)</small></div></div>
+    <label class="meal-note" for="mealSearch">Cari dan pilih makanan yang benar-benar kamu makan</label>
+    <input class="meal-search" id="mealSearch" type="search" placeholder="Contoh: nasi, telur, tempe…" value="${esc(mealSearch)}" autocomplete="off">
+    <div class="food-results" id="foodResults"></div>
+    <form class="meal-form" id="mealLogForm">
+      ${methods.length?`<label class="wide">Pengolahan (opsional)<select id="mealMethod"><option value="">Tanpa tambahan metode</option>${methods.map(method=>`<option value="${esc(method.id)}" ${method.id===mealMethodId?'selected':''}>${esc(method.name)}</option>`).join('')}</select></label>`:''}
+      <label class="wide">Jumlah yang dimakan (gram)<input id="mealGrams" type="number" min="1" max="3000" step="1" value="100" required></label>
+      <div class="food-preview" id="foodPreview" aria-live="polite"></div>
+      <button class="wide" type="submit" ${mealApiReady?'':'disabled'}>＋ Catat makanan ini</button>
+    </form>
+    <button class="custom-toggle" type="button" id="toggleCustom">${customFormOpen?'Tutup':'＋ Tambah makanan pribadi'}</button>
+    ${customFormOpen?`<form class="custom-form" id="customFoodForm">
+      <label class="wide">Nama makanan<input name="name" maxlength="100" required placeholder="Contoh: roti isi buatan rumah"></label>
+      <label>Kalori per 100 g<input name="kcal" type="number" min="0" max="1000" step="0.1" required></label>
+      <label>Protein (g/100 g)<input name="protein" type="number" min="0" max="100" step="0.1" required></label>
+      <label>Karbohidrat (g/100 g)<input name="carbohydrate" type="number" min="0" max="100" step="0.1" required></label>
+      <label>Lemak (g/100 g)<input name="fat" type="number" min="0" max="100" step="0.1" required></label>
+      <label>Serat (g/100 g, opsional)<input name="fiber" type="number" min="0" max="100" step="0.1"></label>
+      <label class="wide">Sumber data (opsional)<input name="source" maxlength="200" placeholder="Contoh: label kemasan"></label>
+      <div class="food-preview wide">Masukkan nilai per 100 g dari label kemasan atau sumber gizi yang kamu percaya. Makanan ini hanya tersimpan untuk akunmu.</div>
+      <button class="wide" type="submit" ${mealApiReady?'':'disabled'}>Simpan makanan pribadi</button>
+    </form>`:''}
+    <div class="sbh">Makanan yang sudah dicatat</div>
+    ${current.length?current.map(log=>`<div class="food-log">
+      <div class="food-log-head"><div><b>${esc(log.nama_makanan)}</b><small>${log.metode_pengolahan?esc(log.metode_pengolahan)+' · ':''}${fmt(Number(log.kalori_kcal))} kkal · ${Number(log.gram)} g</small></div></div>
+      <div class="meal-nutrients">Protein ${shown(log.protein_g)} g · Karbo ${shown(log.karbo_g)} g · Lemak ${shown(log.lemak_g)} g · Serat ${shown(log.serat_g)} g</div>
+      <div class="log-actions"><label>Gram <input type="number" min="1" max="3000" step="1" value="${Number(log.gram)}" data-log-grams="${esc(log.id)}"></label><button type="button" data-update-log="${esc(log.id)}">Ubah gram</button><button type="button" class="delete" data-delete-log="${esc(log.id)}">Hapus</button></div>
+    </div>`).join(''):'<div class="meal-empty">Belum ada makanan tercatat untuk waktu makan ini.</div>'}`;
+  renderFoodResults();renderFoodPreview();
+  const bar=(label,value,target,color)=>`<div class="nrow"><label><span>${label}</span><span>${Math.round(value)} / ${target} g</span></label><div class="tk"><i data-w="${Math.min(100,target?value/target*100:0)}" style="background:${color}"></i></div></div>`;
+  $('#mSum').innerHTML=`<div class="card-t" style="margin-bottom:12px">Ringkasan hari ini</div>
+    <div class="tot"><b>${fmt(allTotals.kcal)}</b><span>dari ${fmt(S.target)} kkal</span></div>
+    <div class="meal-note">Angka per waktu makan hanya acuan pembagian, bukan checklist atau batas yang harus dipenuhi.</div>
+    ${ORDER.map(i=>{const total=totalsFor(logsForMeal(i));return `<div class="sumrow"><label><span>${MEALS[i].e} ${MEALS[i].k}</span><span>${fmt(total.kcal)} / ${mealKcal(i)} kkal</span></label><div class="tk"><i data-w="${Math.min(100,total.kcal/mealKcal(i)*100)}" style="background:${total.kcal?'linear-gradient(90deg,#7a9a2e,#a4c23d)':'#d6dfc8'}"></i></div></div>`}).join('')}
+    <p class="card-s" style="margin-top:6px">${allTotals.kcal<=S.target?`Sisa acuan ${fmt(S.target-allTotals.kcal)} kkal hari ini.`:'Asupan tercatat sudah melewati target energi.'}</p>
+    <div class="sbh">Gizi yang tercatat</div>
+    ${bar('Protein',allTotals.protein,N.p.g,'linear-gradient(90deg,#12524a,#0f7a4f)')}
+    ${bar('Karbohidrat',allTotals.carbohydrate,N.c.g,'linear-gradient(90deg,#7a9a2e,#a4c23d)')}
+    ${bar('Lemak',allTotals.fat,N.l.g,'linear-gradient(90deg,#e0a526,#f5b82e)')}
+    ${bar('Serat',allTotals.fiber,N.fi.g,'linear-gradient(90deg,#2e86ab,#6bb6d6)')}
+    ${allTotals.missingFiber?'<div class="meal-note">Sebagian makanan belum memiliki data serat; angka serat hanya menjumlahkan data yang tersedia.</div>':''}`;
   requestAnimationFrame(()=>$$('#mSum .tk i').forEach(i=>i.style.width=i.dataset.w+'%'));
+}
+function mealError(error){
+  const setup=error.setupRequired?' Pastikan supabase_gizi_planner.sql sudah dijalankan di Supabase SQL Editor.':'';
+  setMealStatus(error.message+setup,true);
+}
+async function loadMealData(){
+  try{
+    const result=await mealRequest({action:'load'});
+    customFoods=result.foods;mealLogs=result.logs;mealApiReady=true;
+    setMealStatus(`Catatan ${new Date(result.date+'T00:00:00').toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · tersimpan di akunmu dan bisa dibuka kembali.`);
+    draw4();
+  }catch(error){mealApiReady=false;mealError(error);draw4()}
 }
 $('#c1').addEventListener('click',e=>{const b=e.target.closest('.nut');if(!b)return;selN=b.dataset.n;selId=SRC[selN][0]||Object.keys(FOOD)[0]||'';qry='';draw1();draw2();draw3()});
 $('#c2').addEventListener('input',e=>{if(e.target.id!=='q2')return;qry=e.target.value;$('#l2').innerHTML=list2()});
 $('#c2').addEventListener('click',e=>{const b=e.target.closest('.fd');if(!b)return;selId=b.dataset.f;$('#l2').innerHTML=list2();draw3()});
-$('#mTabs').addEventListener('click',e=>{const b=e.target.closest('.tab');if(!b)return;if(b.dataset.i==='log'){logView=true}else{logView=false;mi=+b.dataset.i}draw4()});
-$('#mCard').addEventListener('change',e=>{const c=e.target.closest('input[data-m]');if(!c)return;
-  const i=+c.dataset.m,j=+c.dataset.j;S.chk[i]=S.chk[i]||[];S.chk[i][j]=c.checked;sync(i);save();draw4();
-  if(c.checked)toast('Tercatat: '+mealItems(i)[j].F[0]+' ('+mealItems(i)[j].kcal+' kkal)')});
-$('#mCard').addEventListener('click',e=>{if(!e.target.closest('#btAll'))return;
-  const its=mealItems(mi),all=mealDone(mi);S.chk[mi]=its.map(()=>!all);sync(mi);save();draw4();
-  if(!all)toast(MEALS[mi].k+' dicatat ('+S.mk[mi]+' kkal)')});
+$('#mTabs').addEventListener('click',e=>{const b=e.target.closest('.tab');if(!b)return;mi=+b.dataset.meal;draw4()});
+$('#mCard').addEventListener('input',e=>{
+  if(e.target.id==='mealSearch'){mealSearch=e.target.value;renderFoodResults()}
+  if(e.target.id==='mealGrams')renderFoodPreview();
+});
+$('#mCard').addEventListener('change',e=>{
+  if(e.target.id==='mealMethod'){mealMethodId=e.target.value;renderFoodPreview()}
+});
+$('#mCard').addEventListener('click',async e=>{
+  const food=e.target.closest('[data-select-food]');
+  if(food){selectedFoodKey=food.dataset.selectFood;mealMethodId='';draw4();return}
+  if(e.target.closest('#toggleCustom')){customFormOpen=!customFormOpen;draw4();return}
+  const update=e.target.closest('[data-update-log]');
+  if(update){
+    const id=update.dataset.updateLog,field=$$('[data-log-grams]').find(input=>input.dataset.logGrams===id);
+    try{
+      const result=await mealRequest({action:'log_update',id,grams:field.value});
+      mealLogs=mealLogs.map(log=>log.id===id?result.log:log);setMealStatus('Jumlah makanan berhasil diperbarui.');draw4();
+    }catch(error){mealError(error)}
+    return;
+  }
+  const remove=e.target.closest('[data-delete-log]');
+  if(remove){
+    if(!confirm('Hapus makanan ini dari catatan hari ini?'))return;
+    try{
+      await mealRequest({action:'log_delete',id:remove.dataset.deleteLog});
+      mealLogs=mealLogs.filter(log=>log.id!==remove.dataset.deleteLog);setMealStatus('Makanan dihapus dari catatan.');draw4();
+    }catch(error){mealError(error)}
+  }
+});
+$('#mCard').addEventListener('submit',async e=>{
+  if(e.target.id==='mealLogForm'){
+    e.preventDefault();
+    const food=selectedFood();
+    if(!food){setMealStatus('Pilih makanan dari daftar sebelum mencatatnya.',true);return}
+    try{
+      const result=await mealRequest({action:'log_add',meal:MEALS[mi].key,source:food.source,food_id:food.id,method_id:mealMethodId,grams:$('#mealGrams').value});
+      mealLogs.push(result.log);S.checks[1]=true;save();setMealStatus('Makanan berhasil dicatat dan tersimpan di akunmu.');draw4();
+      toast('Tercatat: '+result.log.nama_makanan);
+    }catch(error){mealError(error)}
+    return;
+  }
+  if(e.target.id==='customFoodForm'){
+    e.preventDefault();
+    const form=e.target,data=new FormData(form);
+    try{
+      const result=await mealRequest({
+        action:'custom_add',name:data.get('name'),kcal:data.get('kcal'),protein:data.get('protein'),
+        carbohydrate:data.get('carbohydrate'),fat:data.get('fat'),fiber:data.get('fiber'),source:data.get('source')
+      });
+      customFoods.push(result.food);selectedFoodKey='custom:'+result.food.id;customFormOpen=false;mealSearch='';setMealStatus('Makanan pribadi tersimpan untuk akunmu dan siap dicatat.');draw4();
+      toast('Makanan pribadi disimpan.');
+    }catch(error){mealError(error)}
+  }
+});
 
 /* ===== INIT ===== */
 load();
-if(catalogChanged)toast('Katalog menu berubah; checklist menu lama dikosongkan.');
+if(catalogChanged)toast('Katalog sumber makanan diperbarui.');
 function tick(){const n=new Date();
   $('#clkT').textContent=n.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).replace(/\./g,':');
   $('#clkD').textContent=n.toLocaleDateString('id-ID',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}
 tick();setInterval(tick,1000);
-$('#tbT').textContent='Gizi Planner';$('#tbS').textContent='Gizi, sumber makanan, pengolahan, dan ceklist harian';
-MEALS.forEach((_,i)=>sync(i));save();
+$('#tbT').textContent='Gizi Planner';$('#tbS').textContent='Gizi, sumber makanan, pengolahan, dan catatan makan';
 drawTop();draw1();draw2();draw3();draw4();stagger('gizi');
+loadMealData();
 </script>
 </body>
 </html>

@@ -85,6 +85,12 @@ h1,h2,h3,h4{font-weight:800;color:var(--dark);line-height:1.2}
 /* ===== COMPONENTS ===== */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px;transition:box-shadow .2s,border-color .2s}
 .card.hov:hover{box-shadow:var(--shadow-md);border-color:#d6e1c6}
+.coming-soon{display:flex;align-items:center;gap:14px;border-color:var(--tint2);background:linear-gradient(120deg,#fff,var(--tint))}
+.coming-soon .soon-ic{width:42px;height:42px;display:grid;place-items:center;flex-shrink:0;border-radius:12px;background:#fff;color:var(--olive)}
+.coming-soon .soon-ic svg{width:21px;height:21px}
+.coming-soon .soon-copy{flex:1}
+.coming-soon .soon-copy b{display:block;color:var(--dark);font-size:.9rem}
+.coming-soon .soon-copy p{font-size:.8rem;color:var(--muted);margin-top:2px}
 .card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .card-t{font-size:.98rem;font-weight:800;color:var(--dark)}
 .card-s{font-size:.76rem;color:var(--faint);font-weight:500;margin-top:2px}
@@ -493,6 +499,12 @@ body{
           </div>
         </div>
 
+        <div class="card coming-soon mb" role="status">
+          <span class="soon-ic" data-i="chat"></span>
+          <div class="soon-copy"><b>Konsultasi AI akan hadir</b><p>Fiturnya sedang kami kembangkan dan belum tersedia. Kami akan mengumumkannya saat siap digunakan.</p></div>
+          <span class="tag">Segera Hadir</span>
+        </div>
+
         <div class="g4 mb" id="statGrid">
           <div class="card stat sel hov" data-stat="kal" tabindex="0" role="button" aria-pressed="true">
             <div class="stat-top"><span class="stat-l">Sisa Kalori Hari Ini</span><span class="stat-ic ic-g" data-i="fire"></span></div>
@@ -610,10 +622,10 @@ const ICON={
 const NAV=[
  {g:'Utama',items:[['dashboard','Dashboard','grid','Pantau kalori, BMI, air, dan progres harian']]},
  {g:'Pemeriksaan & Menu',items:[['deteksi','Deteksi Obesitas','pulse','Analisis BMI, risiko, dan target kalori'],['gizi','Gizi Planner','salad','Menu dan kebutuhan gizi sesuai target kalorimu'],['olahraga','Olahraga','dumb','Program olahraga di rumah sesuai kondisimu']]},
- {g:'Konsultasi & Belajar',items:[['chatbot','Konsultasi AI','chat','Tanya jawab seputar diet dan gizi'],['edukasi','Edukasi Pengguna','book','Artikel gizi dan gaya hidup sehat']]},
+ {g:'Belajar',items:[['edukasi','Edukasi Pengguna','book','Artikel gizi dan gaya hidup sehat']]},
  {g:'Laporan & Akun',items:[['ekspor','Ekspor Laporan','file','Unduh riwayat progres dalam PDF atau Excel'],['profil','Kelola Profil','user','Data akun dan preferensi']]}
 ];
-const LINKS={deteksi:'deteksi_obesitas.php',gizi:'gizi_planner.php',olahraga:'olahraga_planner.php',chatbot:'chatbot.php',edukasi:'edukasi_pengguna.php',profil:'profil.php'};
+const LINKS={deteksi:'deteksi_obesitas.php',gizi:'gizi_planner.php',olahraga:'olahraga_planner.php',edukasi:'edukasi_pengguna.php',profil:'profil.php'};
 $('#nav').innerHTML=NAV.map(n=>`<div class="nav-label">${n.g}</div>`+n.items.map(i=>LINKS[i[0]]?`<a class="nav-item" href="${LINKS[i[0]]}"><span class="ic">${ICON[i[2]]}</span>${i[1]}</a>`:`<button class="nav-item${i[0]==='dashboard'?' active':''}" data-target="${i[0]}"><span class="ic">${ICON[i[2]]}</span>${i[1]}</button>`).join('')).join('');
 const META={};NAV.forEach(n=>n.items.forEach(i=>META[i[0]]=[i[1],i[3]]));
 $$('#nav > *').forEach((e,i)=>e.style.setProperty('--i',i));
